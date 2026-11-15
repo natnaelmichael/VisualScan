@@ -1,0 +1,6 @@
+{
+  "name": "visualscan",
+  "version": "0.1.0",
+  "description": "Stream-friendly side pane: model stats, live input tokens/sec, and the model's current action",
+  "types": "./types/index.d.ts"
+}

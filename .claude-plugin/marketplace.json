@@ -1,0 +1,5 @@
+{
+  "name": "visualscan",
+  "owner": { "name": "natnaelmichael" },
+  "plugins": [{ "name": "visualscan", "source": "./" }]
+}
