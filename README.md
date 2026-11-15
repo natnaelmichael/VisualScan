@@ -30,3 +30,7 @@ Every second (and whenever the action changes) the mod writes its full state to 
 
 - The input rate is calculated: the API reports each request's input total once, so it's spread over the time before the first token and smoothed over a few seconds.
 - See `plan.md` for the design and roadmap.
+
+## License
+
+VisualScan is free software, licensed under the [GNU General Public License v3.0](LICENSE).

@@ -2,5 +2,11 @@
   "name": "visualscan",
   "version": "0.1.0",
   "description": "Stream-friendly side pane: model stats, live input tokens/sec, and the model's current action",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "license": "GPL-3.0-only",
+  "author": {
+    "name": "natnaelmichael",
+    "url": "https://github.com/natnaelmichael"
+  },
+  "repository": "https://github.com/natnaelmichael/VisualScan"
 }

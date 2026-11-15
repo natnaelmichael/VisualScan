@@ -1,5 +1,13 @@
 {
   "name": "visualscan",
-  "owner": { "name": "natnaelmichael" },
-  "plugins": [{ "name": "visualscan", "source": "./" }]
+  "owner": {
+    "name": "natnaelmichael"
+  },
+  "plugins": [
+    {
+      "name": "visualscan",
+      "source": "./"
+    }
+  ],
+  "description": "VisualScan: a live agent-state side pane for Claude Code"
 }
