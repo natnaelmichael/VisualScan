@@ -4,6 +4,9 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Snapshot } from '../types'
 import { Rate, Tracker } from './core'
 import { lookupModel } from './models'
+import { githubRepo, isTestCommand, languageShares, parseTestOutput, summarizeCheckRuns } from './project'
+import type { CheckRun } from './project'
+import type { LanguageShare, TestResult } from '../types'
 import { theme } from './theme'
 import { renderWidgets } from './widgets'
 
@@ -13,7 +16,7 @@ const MIN_WRITE_GAP_MS = 250
 const HISTORY_SEC = 60
 
 const snapshot = atom({ plugin: 'visualscan', key: 'snapshot' } as const, null, {
-  shape: 'snapshot-1',
+  shape: 'snapshot-2',
 })
 
 // Working data. Starts over on reload; the snapshot atom keeps the last view.
@@ -29,6 +32,18 @@ let usage: { context?: Snapshot['context']; cost?: Snapshot['cost'] } = {}
 let actionLabel = ''
 let actionSince = 0
 let statePath: string | undefined
+let cwd: string | undefined
+let ciTests: TestResult | null = null
+let localTests: TestResult | null = null
+let languages: LanguageShare[] | null = null
+let nextCiAt = 0
+let nextLangAt = 0
+let ciBusy = false
+let langBusy = false
+
+const CI_EVERY_MS = 30_000
+const CI_WHILE_RUNNING_MS = 10_000
+const LANG_EVERY_MS = 30_000
 let lastWrite = 0
 
 function build(now: number): Snapshot {
@@ -64,6 +79,8 @@ function build(now: number): Snapshot {
       totals: { ...totals },
     },
     action: { kind: action.kind, label: action.label, tool: action.tool, since: actionSince },
+    // GitHub CI first; the last local test run when the commit has no checks.
+    project: { tests: ciTests ?? localTests, languages },
   }
 }
 
@@ -117,8 +134,91 @@ async function loadModel($: EngineInterface): Promise<void> {
   }
 }
 
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** Local test results from Bash output; a push or an edit refreshes CI / languages. */
+async function observeTool($: EngineInterface, e: { tool: string }, ran: unknown, startedAt: number): Promise<void> {
+  if (EDIT_TOOLS.has(e.tool)) nextLangAt = 0
+  if (e.tool !== 'Bash') return
+  const command = String((e as { command?: unknown }).command ?? '')
+  if (/\bgit\s+(push|commit|checkout|switch|pull|merge|rebase|reset)\b/.test(command)) {
+    nextCiAt = 0
+    nextLangAt = 0
+  }
+  if (!isTestCommand(command)) return
+  const result = (ran as { result?: { stdout?: string; stderr?: string } }).result
+  const parsed = parseTestOutput(`${result?.stdout ?? ''}\n${result?.stderr ?? ''}`)
+  if (!parsed) return
+  const endedAt = await $.clock.now()
+  localTests = {
+    passed: parsed.passed,
+    total: parsed.total,
+    durationMs: parsed.durationMs ?? (startedAt ? endedAt - startedAt : undefined),
+    source: 'local',
+    unit: 'tests',
+  }
+  void publish($)
+}
+
+async function refreshCi($: EngineInterface, now: number): Promise<void> {
+  if (ciBusy || now < nextCiAt) return
+  ciBusy = true
+  nextCiAt = now + CI_EVERY_MS
+  try {
+    const opts = cwd ? { cwd, timeoutMs: 15_000 } : { timeoutMs: 15_000 }
+    const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'], opts)
+    const repo = remote.exitCode === 0 ? githubRepo(remote.stdout) : null
+    const head = await $.process.run(['git', 'rev-parse', 'HEAD'], opts)
+    const sha = head.exitCode === 0 ? head.stdout.trim() : ''
+    if (!repo || !sha) {
+      ciTests = null
+      return
+    }
+    const res = await $.process.run(['gh', 'api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`], opts)
+    if (res.exitCode !== 0) {
+      ciTests = null // no gh, not signed in, or the commit isn't on GitHub
+      return
+    }
+    const runs = (JSON.parse(res.stdout) as { check_runs?: CheckRun[] }).check_runs ?? []
+    ciTests = summarizeCheckRuns(runs)
+    if (ciTests?.running) nextCiAt = now + CI_WHILE_RUNNING_MS
+  } catch {
+    ciTests = null
+  } finally {
+    ciBusy = false
+  }
+}
+
+async function refreshLanguages($: EngineInterface, now: number): Promise<void> {
+  if (langBusy || now < nextLangAt) return
+  langBusy = true
+  nextLangAt = now + LANG_EVERY_MS
+  try {
+    const opts = cwd ? { cwd, timeoutMs: 20_000 } : { timeoutMs: 20_000 }
+    let res = await $.process.run(['sh', '-c', 'git ls-files -z | xargs -0 wc -l'], opts)
+    if (res.exitCode !== 0 || !res.stdout.trim()) {
+      res = await $.process.run(
+        ['sh', '-c', "find . -type f -not -path '*/.git/*' -not -path '*/node_modules/*' -print0 | xargs -0 wc -l"],
+        opts,
+      )
+    }
+    languages = languageShares(res.stdout)
+  } catch {
+    // keep the last reading
+  } finally {
+    langBusy = false
+  }
+}
+
 async function tick($: EngineInterface): Promise<void> {
   await loadModel($)
+  try {
+    const now = await $.clock.now()
+    void refreshCi($, now)
+    void refreshLanguages($, now)
+  } catch {
+    // next tick
+  }
   try {
     const u = await $.session.usage()
     lastContextTokens = u.context.tokens ?? lastContextTokens
@@ -142,6 +242,7 @@ async function tick($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    cwd = e.cwd
     await restore($)
     try {
       const home = await $.env.get('HOME')
@@ -246,8 +347,15 @@ export const register: Register = on => {
     const id = e.tool_use_id ?? `${e.tool}-${Math.random()}`
     tracker.tools.set(id, e.tool)
     onAction($)
+    const startedAt = await $.clock.now().catch(() => 0)
     try {
-      return await next(e)
+      const ran = await next(e)
+      try {
+        await observeTool($, e, ran, startedAt)
+      } catch {
+        // observe only
+      }
+      return ran
     } finally {
       tracker.tools.delete(id)
       onAction($)

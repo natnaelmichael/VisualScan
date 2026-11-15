@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Snapshot } from '../types'
 import { bar, fmt, graphRows } from './core'
+import { languagesLine, testsLine } from './project'
 import { theme } from './theme'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
@@ -122,6 +123,22 @@ export const WIDGETS: WidgetDef[] = [
       <Text bold color={theme.action[snap.action.kind] ?? text} wrap="truncate">
         {snap.action.label}
       </Text>
+    ),
+  },
+  {
+    id: 'project',
+    title: 'Project',
+    size: 'half',
+    enabled: true,
+    body: ({ Box, Text }, snap) => (
+      <Box flexDirection="column">
+        <Text color={text} wrap="truncate">
+          {testsLine(snap.project?.tests ?? null)}
+        </Text>
+        <Text color={text} wrap="wrap">
+          {languagesLine(snap.project?.languages ?? null)}
+        </Text>
+      </Box>
     ),
   },
 ]

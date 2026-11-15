@@ -22,12 +22,12 @@ export type Theme = {
   action: Partial<Record<ActionKind, Color>>
 }
 
-const ROYALBLUE = '#4169E1' // royalblue
+const NAVY = '#000080' // NAVY
 const GOLDENROD = '#DAA520' // goldenrod
 const WHITE = '#FFFFFF'
 
 export const theme: Theme = {
-  background: ROYALBLUE,
+  background: NAVY,
   text: GOLDENROD,
   muted: WHITE,
   widget: { borderStyle: 'round', borderColor: GOLDENROD, titleColor: GOLDENROD },

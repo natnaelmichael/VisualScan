@@ -97,3 +97,36 @@ test('the pane shows the action box after a tool call', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: 'Opus 5.5' }))?.text).toBe('Opus 5.5')
   await ui.unmount()
 })
+
+import { githubRepo, languageShares, languagesLine, parseTestOutput, summarizeCheckRuns, testsLine } from './project'
+
+test('test output from common runners', async () => {
+  expect(parseTestOutput(' 6 pass\n 0 fail\nRan 6 tests across 1 file. [0.16s]')).toEqual({ passed: 6, total: 6, durationMs: 160 })
+  expect(parseTestOutput('Tests:       1 failed, 5 passed, 6 total\nTime:        1.234 s')).toEqual({ passed: 5, total: 6, durationMs: 1234 })
+  expect(parseTestOutput(' Tests  1 failed | 5 passed (6)\n Duration  1.20s')).toEqual({ passed: 5, total: 6, durationMs: 1200 })
+  expect(parseTestOutput('===== 5 passed, 1 failed in 0.12s =====')).toEqual({ passed: 5, total: 6, durationMs: 120 })
+  expect(
+    parseTestOutput('test result: ok. 3 passed; 0 failed; 0 ignored; finished in 0.01s\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; finished in 0.02s'),
+  ).toEqual({ passed: 4, total: 5, durationMs: 30 })
+  expect(parseTestOutput('  5 passing (120ms)\n  1 failing')).toEqual({ passed: 5, total: 6, durationMs: 120 })
+  expect(parseTestOutput('hello world')).toBe(null)
+})
+
+test('CI checks: real test counts win, else checks are counted', async () => {
+  const done = { status: 'completed', started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T00:00:02Z' }
+  expect(summarizeCheckRuns([{ ...done, conclusion: 'success' }, { ...done, conclusion: 'failure' }, { ...done, conclusion: 'skipped' }])).toEqual({
+    passed: 1, total: 2, durationMs: 2000, running: false, source: 'ci', unit: 'checks',
+  })
+  expect(summarizeCheckRuns([{ ...done, conclusion: 'failure', output: { title: '12 passed, 1 failed' } }])?.unit).toBe('tests')
+  expect(summarizeCheckRuns([{ status: 'in_progress' }])?.running).toBe(true)
+  expect(githubRepo('https://github.com/natnaelmichael/VisualScan.git')).toBe('natnaelmichael/VisualScan')
+  expect(githubRepo('git@github.com:a/b.git')).toBe('a/b')
+})
+
+test('the two lines read as asked', async () => {
+  const wc = '  300 hooks/a.ts\n  100 hooks/b.tsx\n   50 run.sh\n   50 x.py\n 9999 README.md\n  500 node_modules/z.js\n 10999 total'
+  const langs = languageShares(wc)
+  expect(languagesLine(langs)).toBe('Languages: TypeScript(80.00%), Shell(10.00%), Python(10.00%)')
+  expect(testsLine({ passed: 6, total: 6, durationMs: 160, source: 'local', unit: 'tests' })).toBe('Tests passed: 6/6 (160 ms)')
+  expect(testsLine(null)).toBe('Tests passed: –')
+})

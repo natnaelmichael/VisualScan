@@ -110,6 +110,15 @@ Current theme, **royalblue and goldenrod** (was cornflowerblue):
 
 **Model loading:** on load the mod restores the model, totals and peak from the last snapshot and asks the engine for the session's model (`$.session.model()`), so the Model widget fills in before the first request of a session or after a reload.
 
+### 3.6 Project widget (feedback round 4)
+
+A fourth half-width widget, `Project`, next to Current action, with two lines:
+
+- `Tests passed: x/y (n ms)`
+  - **GitHub CI first:** the check runs of the current commit (`HEAD`), via `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`. If a check's title or summary reports test counts ("12 passed, 1 failed"), those are summed; otherwise each check counts as one (passed = `success`; skipped/neutral/cancelled aren't counted). Time = first start to last finish. Shows `(running)` while checks are in progress. Refreshes every 30 s, every 10 s while running, and right after a `git push`/`commit`/`checkout`.
+  - **Local fallback** when the commit has no checks (not pushed, no Actions, no `gh`): the last test command the agent ran in Bash (`test`, `pytest`, `jest`, `vitest`, `mocha`, …), parsed from its output: bun / `claude plugin test`, jest, vitest, pytest, cargo, mocha, `go test -v`. Time is the runner's own number, or the command's wall time.
+- `Languages: A(xx.xx%), B(yy.yy%), C(zz.zz%)`: the top 3 (or fewer) languages by lines of code over the repo's tracked files (`git ls-files` + `wc -l`; outside git, `find`). Only programming and markup languages count (as on GitHub), not docs or data (Markdown, JSON, LICENSE); vendored/build folders are skipped. Refreshes every 30 s and after file edits.
+
 ## 4. Architecture
 
 ```
