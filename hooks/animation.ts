@@ -76,10 +76,45 @@ function safeCodePoint(ch: string | undefined): number {
 
 export type Frame = { text: string; color?: string }
 
+/** A row holding words (letters or digits), drawn word by word so none lose letters. */
+const isTextRow = (chars: string[]) => chars.some(c => /[A-Za-z0-9]/.test(c))
+
 /**
- * Lays a frame into a `cols` x `rows` box: shrunk to fit (nearest cell,
- * aspect kept) when larger, centred when smaller. Returns u32 triplets
- * [codePoint, fg, bg] per cell, row-major.
+ * For each of `w` output columns, the source column it shows (-1 for blank).
+ * Picture rows are sampled to the nearest cell; text rows keep every word
+ * whole, each placed near its scaled position, squeezed together if needed.
+ */
+function columnMap(chars: string[], sc: number, w: number): number[] {
+  const map = new Array<number>(w).fill(-1)
+  if (!isTextRow(chars)) {
+    for (let x = 0; x < w; x++) map[x] = Math.min(sc - 1, Math.floor(((x + 0.5) * sc) / w))
+    return map
+  }
+  const words: { from: number; len: number; at: number }[] = []
+  for (let i = 0; i < chars.length; ) {
+    if (chars[i] === ' ' || chars[i] === undefined) { i++; continue }
+    let j = i
+    while (j < chars.length && chars[j] !== ' ') j++
+    words.push({ from: i, len: j - i, at: Math.round((i * w) / sc) })
+    i = j
+  }
+  // Left to right: no overlaps, one space between words. Right to left: fit the width.
+  for (let k = 1; k < words.length; k++) words[k]!.at = Math.max(words[k]!.at, words[k - 1]!.at + words[k - 1]!.len + 1)
+  let limit = w
+  for (let k = words.length - 1; k >= 0; k--) {
+    const wd = words[k]!
+    wd.at = Math.max(0, Math.min(wd.at, limit - wd.len))
+    limit = wd.at - 1
+  }
+  for (const wd of words) for (let c = 0; c < wd.len; c++) if (wd.at + c >= 0 && wd.at + c < w) map[wd.at + c] = wd.from + c
+  return map
+}
+
+/**
+ * Lays a frame into a `cols` x `rows` box, scaled up or down to fill it
+ * with its aspect kept, and centred along the side with room left. The
+ * first and last rows are always kept (where pieces put their labels).
+ * Returns u32 triplets [codePoint, fg, bg] per cell, row-major.
  */
 export function frameToWords(
   frame: Frame,
@@ -93,9 +128,9 @@ export function frameToWords(
   const colors = frame.color ? frame.color.split('\n') : []
   const sr = Math.max(1, lines.length)
   const sc = Math.max(1, ...lines.map(l => [...l].length))
-  const s = Math.min(cols / sc, rows / sr, 1)
-  const w = Math.max(1, Math.floor(sc * s))
-  const h = Math.max(1, Math.floor(sr * s))
+  const s = Math.min(cols / sc, rows / sr)
+  const w = Math.max(1, Math.min(cols, Math.round(sc * s)))
+  const h = Math.max(1, Math.min(rows, Math.round(sr * s)))
   const ox = Math.floor((cols - w) / 2)
   const oy = Math.floor((rows - h) / 2)
   const bg = background ?? DEFAULT_COLOR
@@ -107,18 +142,31 @@ export function frameToWords(
   }
   const srcChars = lines.map(l => [...l])
   const srcCols = colors.map(l => [...l])
+  const maps = new Map<number, number[]>()
 
   const words = new Uint32Array(cols * rows * 3)
+  let prevSy = -1
   for (let y = 0; y < rows; y++) {
+    const ty = y - oy
+    let sy = -1
+    if (ty >= 0 && ty < h) {
+      sy = h === 1 ? 0 : Math.round((ty * (sr - 1)) / (h - 1))
+      // Scaled up, a row repeats: a picture row may, a line of text may not.
+      if (sy === prevSy && isTextRow(srcChars[sy] ?? [])) sy = -2
+      else prevSy = sy
+    }
+    let map: number[] | undefined
+    if (sy >= 0) {
+      map = maps.get(sy)
+      if (!map) maps.set(sy, (map = columnMap(srcChars[sy] ?? [], sc, w)))
+    }
     for (let x = 0; x < cols; x++) {
       const i = (y * cols + x) * 3
       let cp = 0x20
       let color = fg
       const tx = x - ox
-      const ty = y - oy
-      if (tx >= 0 && ty >= 0 && tx < w && ty < h) {
-        const sx = Math.min(sc - 1, Math.floor(((tx + 0.5) * sc) / w))
-        const sy = Math.min(sr - 1, Math.floor(((ty + 0.5) * sr) / h))
+      const sx = map && tx >= 0 && tx < w ? map[tx]! : -1
+      if (sx >= 0) {
         cp = safeCodePoint(srcChars[sy]?.[sx])
         const key = srcCols[sy]?.[sx]
         if (key && key !== ' ' && pal[key] !== undefined) color = pal[key]!

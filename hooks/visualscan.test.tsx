@@ -163,6 +163,22 @@ test('frames shrink to fit, centre, and carry palette colours', async () => {
   expect(wordsToBase64(Uint32Array.of(0x2588, 0xff8800, 0x01000000))).toBe('iCUAAACI/wAAAAAB')
 })
 
+test('frames fill the width at their aspect and keep words whole', async () => {
+  const text = 'edge requests 20' + ' '.repeat(14) + 'req/s 4244\n' + '•'.repeat(40) + '\n' + '•'.repeat(40) + '\n' + ' ● api   ● sync' + ' '.repeat(25)
+  const cols = 30
+  const w = frameToWords({ text }, cols, 3, {}, undefined, undefined)
+  const row = (y: number) => Array.from({ length: cols }, (_, x) => String.fromCodePoint(w[(y * cols + x) * 3]!)).join('')
+  expect(row(0)).toContain('edge requests 20')
+  expect(row(0)).toContain('req/s 4244')
+  expect(row(1)).toBe('•'.repeat(30)) // the picture spans the full width
+  expect(row(2)).toContain('● api')
+  // Scaled up, a text row is drawn once, not doubled.
+  const big = frameToWords({ text: 'ab\n••' }, 4, 4, {}, undefined, undefined)
+  const bigRow = (y: number) => Array.from({ length: 4 }, (_, x) => String.fromCodePoint(big[(y * 4 + x) * 3]!)).join('')
+  expect([0, 1, 2, 3].map(bigRow).filter(r => r.includes('ab')).length).toBe(1)
+  expect(bigRow(3)).toBe('••••')
+})
+
 test('the animation fills the rows the other widgets leave', async () => {
   const snap = {
     version: 1, updatedAt: 0, model: null, context: null, cost: null,

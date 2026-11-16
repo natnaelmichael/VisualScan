@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Snapshot } from '../types'
 import { bar, fmt, graphRows } from './core'
-import { RASTER_KEY, currentCells } from './player'
+import { RASTER_KEY, currentCells, frameSize } from './player'
 import { languagesLine, testsLine } from './project'
 import { theme } from './theme'
 
@@ -21,6 +21,8 @@ export type WidgetDef = {
   enabled: boolean
   /** How many body rows the widget draws at this inner width (not for `fill`). */
   lines?: (snap: Snapshot, inner: number) => number
+  /** For `fill`: the most rows worth taking at this inner width (the content's aspect). */
+  maxRows?: (inner: number) => number | undefined
   body: (ui: Elements, snap: Snapshot, inner: number, rows: number) => unknown
 }
 
@@ -162,6 +164,11 @@ export const WIDGETS: WidgetDef[] = [
     title: snap => snap.animation?.name ?? 'Animation',
     size: 'fill',
     enabled: true,
+    // Rows that make the piece span the full width at its own aspect.
+    maxRows: inner => {
+      const f = frameSize()
+      return f ? Math.max(1, Math.round((inner * f.rows) / f.cols)) : undefined
+    },
     body: (ui, snap, inner, rows) => {
       const { Text } = ui
       const anim = snap.animation
@@ -217,7 +224,10 @@ export function layoutWidgets(snap: Snapshot, paneColumns: number, paneRows: num
   // What the fixed rows use; the fill widgets share the rest (one row spare).
   const used = rowsOf.filter(r => r[0]!.def.size !== 'fill').reduce((n, r) => n + r[0]!.rows + CHROME_ROWS, 0)
   const spare = paneRows - used - 1 - fills.length * CHROME_ROWS
-  for (const f of fills) f.rows = Math.max(3, Math.floor(spare / Math.max(1, fills.length)))
+  for (const f of fills) {
+    const share = Math.max(3, Math.floor(spare / Math.max(1, fills.length)))
+    f.rows = Math.max(3, Math.min(share, f.def.maxRows?.(f.inner) ?? share))
+  }
   return rowsOf
 }
 

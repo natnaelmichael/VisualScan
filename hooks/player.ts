@@ -48,6 +48,15 @@ function setState(next: AnimationState): void {
   onChange()
 }
 
+/** The piece's own size in cells (its design's aspect), once known. */
+export function frameSize(): { cols: number; rows: number } | null {
+  const m = meta as Meta | null
+  if (m?.cols && m.rows) return { cols: m.cols, rows: m.rows }
+  if (!lastFrame) return null
+  const lines = lastFrame.text.split('\n')
+  return { cols: Math.max(1, ...lines.map(l => [...l].length)), rows: lines.length }
+}
+
 /** Cells for the Raster at the size the widget is drawn at now. */
 export function currentCells(cols: number, rows: number): string {
   raster = { cols, rows }
