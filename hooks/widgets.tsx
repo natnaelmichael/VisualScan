@@ -2,21 +2,30 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Snapshot } from '../types'
 import { bar, fmt, graphRows } from './core'
+import { RASTER_KEY, currentCells } from './player'
 import { languagesLine, testsLine } from './project'
 import { theme } from './theme'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
 
-/** Each widget's size, as a fraction of the pane's width. */
-export type WidgetSize = 'half' | 'full'
+/**
+ * Each widget's size: `half` / `full` of the pane's width; `fill` is full
+ * width and takes every row the other widgets leave.
+ */
+export type WidgetSize = 'half' | 'full' | 'fill'
 
 export type WidgetDef = {
   id: string
-  title: string
+  title: string | ((snap: Snapshot) => string)
   size: WidgetSize
   enabled: boolean
-  body: (ui: Elements, snap: Snapshot, inner: number) => unknown
+  /** How many body rows the widget draws at this inner width (not for `fill`). */
+  lines?: (snap: Snapshot, inner: number) => number
+  body: (ui: Elements, snap: Snapshot, inner: number, rows: number) => unknown
 }
+
+/** Rows a widget's frame adds to its body: top and bottom border, title. */
+const CHROME_ROWS = 3
 
 const GRAPH_ROWS = 4
 const text = theme.text
@@ -29,6 +38,10 @@ export const WIDGETS: WidgetDef[] = [
     title: 'Model',
     size: 'half',
     enabled: true,
+    lines: snap => {
+      const m = snap.model
+      return 4 + (m ? 1 : 0) + (m?.effort ? 1 : 0) + (m?.maxOutput !== undefined ? 1 : 0) + (m?.priceIn !== undefined ? 1 : 0) + (snap.cost ? 1 : 0)
+    },
     body: ({ Box, Text }, snap, inner) => {
       const m = snap.model
       const c = snap.context
@@ -86,6 +99,7 @@ export const WIDGETS: WidgetDef[] = [
     title: 'Tokens consumed / sec',
     size: 'half',
     enabled: true,
+    lines: () => GRAPH_ROWS + 2,
     body: ({ Box, Text }, snap, inner) => {
       const t = snap.tokens
       const rows = graphRows(t.history, inner, GRAPH_ROWS)
@@ -119,6 +133,7 @@ export const WIDGETS: WidgetDef[] = [
     title: 'Current action:',
     size: 'half',
     enabled: true,
+    lines: () => 1,
     body: ({ Text }, snap) => (
       <Text bold color={theme.action[snap.action.kind] ?? text} wrap="truncate">
         {snap.action.label}
@@ -130,6 +145,7 @@ export const WIDGETS: WidgetDef[] = [
     title: 'Project',
     size: 'half',
     enabled: true,
+    lines: (snap, inner) => 1 + Math.max(1, Math.ceil(languagesLine(snap.project?.languages ?? null).length / inner)),
     body: ({ Box, Text }, snap) => (
       <Box flexDirection="column">
         <Text color={text} wrap="truncate">
@@ -141,37 +157,94 @@ export const WIDGETS: WidgetDef[] = [
       </Box>
     ),
   },
+  {
+    id: 'animation',
+    title: snap => snap.animation?.name ?? 'Animation',
+    size: 'fill',
+    enabled: true,
+    body: (ui, snap, inner, rows) => {
+      const { Text } = ui
+      const anim = snap.animation
+      if (anim?.status === 'error') {
+        return (
+          <Text color={muted} wrap="wrap">
+            {anim.message ?? 'The animation could not play.'}
+          </Text>
+        )
+      }
+      if (!('Raster' in ui) || !ui.Raster) return <Text color={muted}>This surface can't draw animations.</Text>
+      const { Raster } = ui
+      return <Raster key={RASTER_KEY} columns={inner} rows={rows} cells={currentCells(inner, rows)} />
+    },
+  },
 ]
 
 /** Outer width (border included) of a widget, in columns. */
 export function widgetColumns(size: WidgetSize, paneColumns: number): number {
-  return size === 'full' ? paneColumns : Math.floor(paneColumns / 2)
+  return size === 'half' ? Math.floor(paneColumns / 2) : paneColumns
 }
 
-export function renderWidgets(ui: Elements, snap: Snapshot, paneColumns: number) {
+type Placed = { def: WidgetDef; outer: number; inner: number; rows: number }
+
+/**
+ * Lays the enabled widgets out in order: halves pair up side by side, a
+ * full-width one takes its own row, and a `fill` one gets the rows left.
+ */
+export function layoutWidgets(snap: Snapshot, paneColumns: number, paneRows: number): Placed[][] {
+  const rowsOf: Placed[][] = []
+  let pending: Placed[] = []
+  const flush = () => {
+    if (!pending.length) return
+    const h = Math.max(...pending.map(p => p.rows))
+    rowsOf.push(pending.map(p => ({ ...p, rows: h })))
+    pending = []
+  }
+  const fills: Placed[] = []
+  for (const def of WIDGETS.filter(w => w.enabled)) {
+    const outer = widgetColumns(def.size, paneColumns)
+    const inner = Math.max(8, outer - 4) // border + one column of padding each side
+    const placed: Placed = { def, outer, inner, rows: def.lines ? def.lines(snap, inner) : 1 }
+    if (def.size === 'half') {
+      pending.push(placed)
+      if (pending.length === 2) flush()
+    } else {
+      flush()
+      if (def.size === 'fill') fills.push(placed)
+      rowsOf.push([placed])
+    }
+  }
+  flush()
+  // What the fixed rows use; the fill widgets share the rest (one row spare).
+  const used = rowsOf.filter(r => r[0]!.def.size !== 'fill').reduce((n, r) => n + r[0]!.rows + CHROME_ROWS, 0)
+  const spare = paneRows - used - 1 - fills.length * CHROME_ROWS
+  for (const f of fills) f.rows = Math.max(3, Math.floor(spare / Math.max(1, fills.length)))
+  return rowsOf
+}
+
+export function renderWidgets(ui: Elements, snap: Snapshot, paneColumns: number, paneRows: number) {
   const { Box, Text } = ui
   return (
-    <Box flexDirection="row" flexWrap="wrap" backgroundColor={theme.background}>
-      {WIDGETS.filter(w => w.enabled).map(w => {
-        const outer = widgetColumns(w.size, paneColumns)
-        const inner = Math.max(8, outer - 4) // border + one column of padding each side
-        return (
-          <Box
-            key={w.id}
-            width={outer}
-            flexDirection="column"
-            borderStyle={theme.widget.borderStyle}
-            borderColor={theme.widget.borderColor ?? text}
-            backgroundColor={theme.background}
-            paddingX={1}
-          >
-            <Text bold color={theme.widget.titleColor ?? text} wrap="truncate">
-              {w.title}
-            </Text>
-            {w.body(ui, snap, inner) as never}
-          </Box>
-        )
-      })}
+    <Box flexDirection="column" backgroundColor={theme.background}>
+      {layoutWidgets(snap, paneColumns, paneRows).map((row, r) => (
+        <Box key={`row-${r}`} flexDirection="row">
+          {row.map(({ def, outer, inner, rows }) => (
+            <Box
+              key={def.id}
+              width={outer}
+              flexDirection="column"
+              borderStyle={theme.widget.borderStyle}
+              borderColor={theme.widget.borderColor ?? text}
+              backgroundColor={theme.background}
+              paddingX={1}
+            >
+              <Text bold color={theme.widget.titleColor ?? text} wrap="truncate">
+                {typeof def.title === 'function' ? def.title(snap) : def.title}
+              </Text>
+              {def.body(ui, snap, inner, rows) as never}
+            </Box>
+          ))}
+        </Box>
+      ))}
     </Box>
   )
 }

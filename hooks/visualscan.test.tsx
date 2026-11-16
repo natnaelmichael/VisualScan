@@ -130,3 +130,50 @@ test('the two lines read as asked', async () => {
   expect(testsLine({ passed: 6, total: 6, durationMs: 160, source: 'local', unit: 'tests' })).toBe('Tests passed: 6/6 (160 ms)')
   expect(testsLine(null)).toBe('Tests passed: –')
 })
+
+import { frameToWords, parseEnv, relativeImports, resolveImport, slugFromUrl, wordsToBase64 } from './animation'
+import { layoutWidgets } from './widgets'
+
+test('ANIMATION_URL from .env, only ascii-magic piece pages', async () => {
+  expect(parseEnv('# c\nANIMATION_URL="https://www.ascii-magic.com/ascii/world-map-pings"\nX=1 # note').ANIMATION_URL).toBe(
+    'https://www.ascii-magic.com/ascii/world-map-pings',
+  )
+  expect(slugFromUrl('https://www.ascii-magic.com/ascii/world-map-pings')).toBe('world-map-pings')
+  expect(slugFromUrl('https://ascii-magic.com/ascii/cpu-cores/')).toBe('cpu-cores')
+  expect(slugFromUrl('https://evil.example/ascii/cpu-cores')).toBe(null)
+  expect(slugFromUrl('https://www.ascii-magic.com/ascii/../x')).toBe(null)
+})
+
+test('piece imports resolve inside the library only', async () => {
+  expect(relativeImports('import { Grid } from "../lib/kit.js";\nimport x from "../lib/scene.js"')).toEqual(['../lib/kit.js', '../lib/scene.js'])
+  expect(resolveImport('pieces/a.js', '../lib/kit.js')).toBe('lib/kit.js')
+  expect(resolveImport('lib/scene.js', './kit.js')).toBe('lib/kit.js')
+  expect(resolveImport('pieces/a.js', '../../etc/passwd')).toBe(null)
+})
+
+test('frames shrink to fit, centre, and carry palette colours', async () => {
+  const w = frameToWords({ text: 'ab\ncd', color: '0 \n  ' }, 4, 2, { '0': '#ff0000' }, 0x00ff00, 0x000080)
+  // 2x2 centred in 4x2: columns 1..2
+  expect(String.fromCodePoint(w[3]!, w[6]!)).toBe('ab')
+  expect(w[4]).toBe(0xff0000) // 'a' coloured by key 0
+  expect(w[7]).toBe(0x00ff00) // 'b' default ink
+  expect(w[2]).toBe(0x000080) // background
+  const small = frameToWords({ text: 'abcd\nefgh\nijkl\nmnop' }, 2, 2, {}, undefined, undefined)
+  expect(small.length).toBe(12)
+  expect(wordsToBase64(Uint32Array.of(0x2588, 0xff8800, 0x01000000))).toBe('iCUAAACI/wAAAAAB')
+})
+
+test('the animation fills the rows the other widgets leave', async () => {
+  const snap = {
+    version: 1, updatedAt: 0, model: null, context: null, cost: null,
+    tokens: { inputPerSec: 0, inputPerSecPeak: 0, outputPerSec: 0, history: [], totals: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, requests: 0 } },
+    action: { kind: 'finished', label: 'Finished', since: 0 },
+    project: { tests: null, languages: null },
+    animation: null,
+  } as const
+  const rows = layoutWidgets(snap as never, 80, 50)
+  expect(rows.map(r => r.map(p => p.def.id))).toEqual([['model', 'tokens'], ['action', 'project'], ['animation']])
+  const used = rows.slice(0, 2).reduce((n, r) => n + r[0]!.rows + 3, 0)
+  expect(rows[2]![0]!.rows).toBe(50 - used - 1 - 3)
+  expect(rows[2]![0]!.inner).toBe(76)
+})

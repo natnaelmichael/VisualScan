@@ -119,6 +119,17 @@ A fourth half-width widget, `Project`, next to Current action, with two lines:
   - **Local fallback** when the commit has no checks (not pushed, no Actions, no `gh`): the last test command the agent ran in Bash (`test`, `pytest`, `jest`, `vitest`, `mocha`, …), parsed from its output: bun / `claude plugin test`, jest, vitest, pytest, cargo, mocha, `go test -v`. Time is the runner's own number, or the command's wall time.
 - `Languages: A(xx.xx%), B(yy.yy%), C(zz.zz%)`: the top 3 (or fewer) languages by lines of code over the repo's tracked files (`git ls-files` + `wc -l`; outside git, `find`). Only programming and markup languages count (as on GitHub), not docs or data (Markdown, JSON, LICENSE); vendored/build folders are skipped. Refreshes every 30 s and after file edits.
 
+### 3.7 Animation widget (feedback round 5)
+
+A fifth widget, full width, taking every row the other widgets leave (`size: 'fill'`), that plays any animated piece from ascii-magic.com.
+
+- **Which piece:** `ANIMATION_URL`, read from the process environment, else the project's `.env`, else the mod's own `.env`, else the default `https://www.ascii-magic.com/ascii/cpu-cores`. Re-read every 5 s, so editing `.env` switches pieces live. Only `https://www.ascii-magic.com/ascii/<slug>` URLs are accepted.
+- **How pieces work:** each is an ES module (`/ascii/pieces/<slug>.js`) exporting `meta` (cols, rows, fps, palette) and `create()`, which returns `t => frame` (text plus one colour key per cell), built on `/ascii/lib/kit.js` (some also on `lib/scene.js` or `lib/image.js`). MIT-licensed (npm `ascii-magic-art`; two photo pieces are Unsplash-licensed).
+- **Getting the files:** the default piece and `kit.js` ship in `ascii/` (offline, no download). Any other piece is downloaded once with `curl`, along with everything it imports, into `~/.claude/visualscan/ascii/`, and reused after that.
+- **Running:** `hooks/ascii-runner.mjs` under `node --permission`, reading only the piece's folder (no network, writes or child processes), prints one JSON line per frame at the piece's fps (capped at 15).
+- **Drawing:** the widget is a `Raster`; each frame is fitted (shrunk with nearest-cell sampling, aspect kept, or centred), coloured from the piece's palette on the theme background, and painted with `$.ui.blit`, without re-rendering the pane.
+- **Title** is the piece's name (e.g. "World Map Pings"); errors (bad URL, failed download, no Node) show in the widget body.
+
 ## 4. Architecture
 
 ```

@@ -22,16 +22,16 @@ export type Theme = {
   action: Partial<Record<ActionKind, Color>>
 }
 
-const NAVY = '#000080' // NAVY
-const GOLDENROD = '#DAA520' // goldenrod
-const WHITE = '#FFFFFF'
+const BACKGROUND = '#000080' // BACKGROUND
+const TEXT_PRIMARY = '#DAA520' // TEXT_PRIMARY
+const TEXT_SECONDARY = '#FFFFFF'
 
 export const theme: Theme = {
-  background: NAVY,
-  text: GOLDENROD,
-  muted: WHITE,
-  widget: { borderStyle: 'round', borderColor: GOLDENROD, titleColor: GOLDENROD },
-  context: { fill: GOLDENROD, empty: WHITE },
-  graph: { bar: GOLDENROD, baseline: WHITE },
+  background: BACKGROUND,
+  text: TEXT_PRIMARY,
+  muted: TEXT_SECONDARY,
+  widget: { borderStyle: 'round', borderColor: TEXT_PRIMARY, titleColor: TEXT_PRIMARY },
+  context: { fill: TEXT_PRIMARY, empty: TEXT_SECONDARY },
+  graph: { bar: TEXT_PRIMARY, baseline: TEXT_SECONDARY },
   action: {},
 }

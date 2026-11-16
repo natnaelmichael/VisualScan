@@ -8,6 +8,7 @@ import { githubRepo, isTestCommand, languageShares, parseTestOutput, summarizeCh
 import type { CheckRun } from './project'
 import type { LanguageShare, TestResult } from '../types'
 import { theme } from './theme'
+import { animationState, checkAnimationUrl, startAnimation } from './player'
 import { renderWidgets } from './widgets'
 
 const PANE = 'visualscan'
@@ -16,7 +17,7 @@ const MIN_WRITE_GAP_MS = 250
 const HISTORY_SEC = 60
 
 const snapshot = atom({ plugin: 'visualscan', key: 'snapshot' } as const, null, {
-  shape: 'snapshot-2',
+  shape: 'snapshot-3',
 })
 
 // Working data. Starts over on reload; the snapshot atom keeps the last view.
@@ -32,6 +33,7 @@ let usage: { context?: Snapshot['context']; cost?: Snapshot['cost'] } = {}
 let actionLabel = ''
 let actionSince = 0
 let statePath: string | undefined
+let asciiCache = ''
 let cwd: string | undefined
 let ciTests: TestResult | null = null
 let localTests: TestResult | null = null
@@ -81,6 +83,7 @@ function build(now: number): Snapshot {
     action: { kind: action.kind, label: action.label, tool: action.tool, since: actionSince },
     // GitHub CI first; the last local test run when the commit has no checks.
     project: { tests: ciTests ?? localTests, languages },
+    animation: animationState(),
   }
 }
 
@@ -216,6 +219,7 @@ async function tick($: EngineInterface): Promise<void> {
     const now = await $.clock.now()
     void refreshCi($, now)
     void refreshLanguages($, now)
+    if (asciiCache) void checkAnimationUrl($, now, { cwd, cache: asciiCache })
   } catch {
     // next tick
   }
@@ -246,7 +250,10 @@ export const register: Register = on => {
     await restore($)
     try {
       const home = await $.env.get('HOME')
-      if (home) statePath = `${home}/.claude/visualscan/state.json`
+      if (home) {
+        statePath = `${home}/.claude/visualscan/state.json`
+        asciiCache = `${home}/.claude/visualscan/ascii`
+      }
     } catch {
       statePath = undefined
     }
@@ -257,6 +264,7 @@ export const register: Register = on => {
       // the pane still draws from events
     }
     void $.ui.open(paneArgs())
+    if (asciiCache) void startAnimation($, { cwd, cache: asciiCache, pane: PANE, changed: () => void publish($) })
     void tick($)
     return started
   })
@@ -378,6 +386,6 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const snap = await read($, snapshot)
     if (!snap) return <ui.Text dimColor>VisualScan is warming up…</ui.Text>
-    return renderWidgets(ui, snap, Math.max(40, e.props.bodyColumns ?? 80))
+    return renderWidgets(ui, snap, Math.max(40, e.props.bodyColumns ?? 80), e.props.scroll?.bodyRows ?? 40)
   })
 }

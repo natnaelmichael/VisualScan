@@ -22,6 +22,17 @@ export type TestResult = {
 
 export type LanguageShare = { name: string; lines: number; percent: number }
 
+export type AnimationState = {
+  /** The ANIMATION_URL in use. */
+  url: string
+  /** The piece's slug, null when the URL isn't an ascii-magic.com piece page. */
+  slug: string | null
+  /** The piece's display name, once it has loaded. */
+  name?: string
+  status: 'loading' | 'playing' | 'error'
+  message?: string
+}
+
 export type Snapshot = {
   version: 1
   updatedAt: number
@@ -45,6 +56,7 @@ export type Snapshot = {
   }
   action: { kind: ActionKind; label: string; tool?: string; since: number }
   project: { tests: TestResult | null; languages: LanguageShare[] | null }
+  animation: AnimationState | null
 }
 
 declare module 'claude-code' {
